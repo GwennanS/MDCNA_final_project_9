@@ -104,7 +104,8 @@ if __name__ == '__main__':
 
     Gdf = df.rename(columns={'SOURCE_SUBREDDIT': 'source', 'TARGET_SUBREDDIT': 'target'})
     print(Gdf.shape)
-    Gdf = Gdf[Gdf.source.isin(ranking_outdegree[:708])]
+    Gdf = Gdf[Gdf.source.isin(ranking_indegree[:820])]
+    Gdf = Gdf[Gdf.target.isin(ranking_indegree[:820])]
     print(Gdf.shape)
     temp_motifs(Gdf)
 
