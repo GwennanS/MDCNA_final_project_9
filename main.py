@@ -37,8 +37,7 @@ def temp_motifs(df):
 
     print("Plotting results...")
     motif_distribution = calculate_motif_distribution(EG)
-    print(motif_distribution)
-    motif_distribution.nlargest().plot(kind='bar', ylim=(0, 0.5))
+    motif_distribution.plot(kind='bar', ylim=(0, 0.5))
     plt.show()
 
 
