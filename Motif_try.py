@@ -1,3 +1,4 @@
+import itertools
 import re
 import time as time
 import community as community_louvain
@@ -6,12 +7,13 @@ from matplotlib import pyplot as plt
 from eventgraphs import EventGraph
 from eventgraphs.analysis import calculate_motif_distribution
 from eventgraphs.plotting import plot_barcode
+import numpy as np
 
 import pandas as pd
 import networkx as nx
 
 def temp_motifs(df):
-    print("Transforming timestamps...")
+    #print("Transforming timestamps...")
     timestamps_data = df['TIMESTAMP']
     date_regex = '[0-9]+-[0-9]+-[0-9]+'
     timestamps = []
@@ -19,32 +21,115 @@ def temp_motifs(df):
         date = re.search(date_regex, timestamp)
         if date:
             timestamps.append(int(date.group(0).replace('-', '')))
-    print("There are", len(timestamps), "timestamps")
+    #print("There are", len(timestamps), "timestamps")
 
-    print("Building new DataFrame...")
+    #print("Building new DataFrame...")
     del df['TIMESTAMP']
     df['time'] = timestamps
-    print(df)
+    #print(df)
+    try:
+        #print("Create event graph...")
+        EG = EventGraph.from_pandas_eventlist(df, graph_rules='teg')
+        #print(EG)
+        EG.build(verbose=True)
+        #print(EG)
+        #print(EG.eg_edges.head())
+        EG.calculate_edge_motifs(edge_type='type', condensed=False)
+        #print(EG.eg_edges)
 
-    print("Create event graph...")
-    EG = EventGraph.from_pandas_eventlist(df, graph_rules='teg')
-    print(EG)
-    EG.build(verbose=True)
-    print(EG)
-    print(EG.eg_edges.head())
-    EG.calculate_edge_motifs(edge_type='type', condensed=False)
-    print(EG.eg_edges)
+        # print("Plotting results...")
+        motif_distribution = calculate_motif_distribution(EG)
+        #print(type(EG.eg_edges.motif.value_counts()))
+        # motif_distribution.nlargest().plot(kind='bar', ylim=(0, 0.5))
+        # plt.show()
+        return EG.eg_edges.motif.value_counts()
+    except:
+        return {}
 
-    print("Plotting results...")
-    motif_distribution = calculate_motif_distribution(EG)
-    print(motif_distribution)
-    motif_distribution.nlargest().plot(kind='bar', ylim=(0, 0.5))
-    plt.show()
+def motifNode(gr, Gdf, node):
+    ## We define each S* motif as a directed graph in networkx
+    motifs = {
+        'S1': nx.DiGraph([(1, 2), (2, 3)]),
+        'S2': nx.DiGraph([(1, 2), (1, 3), (2, 3)]),
+        'S3': nx.DiGraph([(1, 2), (2, 3), (3, 1)]),
+        'S4': nx.DiGraph([(1, 2), (3, 2)]),
+        'S5': nx.DiGraph([(1, 2), (1, 3)])
+    }
+    mo = motifs
+
+    """Counts motifs in a directed graph
+    :param gr: A ``DiGraph`` object
+    :param mo: A ``dict`` of motifs to count
+    :returns: A ``dict`` with the number of each motifs, with the same keys as ``mo``
+    This function is actually rather simple. It will extract all 3-grams from
+    the original graph, and look for isomorphisms in the motifs contained
+    in a dictionary. The returned object is a ``dict`` with the number of
+    times each motif was found.::
+        >>> print mcounter(gr, mo)
+        {'S1': 4, 'S3': 0, 'S2': 1, 'S5': 0, 'S4': 3}
+    """
+    # This function will take each possible subgraphs of gr of size 3, then
+    # compare them to the mo dict using .subgraph() and is_isomorphic
+
+    # This line simply creates a dictionary with 0 for all values, and the
+    # motif names as keys
+
+    mcount = dict(zip(mo, list(map(int, np.zeros(len(mo))))))
+    nodes = gr.nodes()
+    print(nodes)
+    print(node)
+    # We use iterools.product to have all combinations of three nodes in the
+    # original graph. Then we filter combinations with non-unique nodes, because
+    # the motifs do not account for self-consumption.
+
+    triplets = list(itertools.product(*[nodes, nodes, nodes]))
+    triplets = [trip for trip in triplets if (len(list(set(trip))) == 3 and node in list(set(trip)))]
+    triplets = map(list, map(np.sort, triplets))
+    u_triplets = []
+    [u_triplets.append(trip) for trip in triplets if not u_triplets.count(trip)]
+    # The for each each of the triplets, we (i) take its subgraph, and compare
+    # it to all fo the possible motifs
+
+    temp_motif = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+    for trip in u_triplets:
+        Tripdf = Gdf[Gdf.source.isin(trip)]
+        Tripdf = Tripdf[Tripdf.target.isin(trip)]
+        if not Tripdf.empty:
+            new = temp_motifs(Tripdf)
+        #print(new.items())
+            for key, value in new.items():
+            #print(key == {'●|○': 45, '○|●': 7, '○|+': 4, '+|●': 4, '●|+': 3, '+|○': 2})
+                if key == '●|○':
+                    temp_motif[0] = temp_motif[0] + value
+                if key == '○|●':
+                    temp_motif[1] = temp_motif[1] + value
+                if key == '○|+':
+                    temp_motif[2] = temp_motif[2] + value
+                if key == '+|●':
+                    temp_motif[3] = temp_motif[3] + value
+                if key == '●|+':
+                    temp_motif[4] = temp_motif[4] + value
+                if key == '+|○':
+                    temp_motif[5] = temp_motif[5] + value
+    print(temp_motif)
+    factor = 1.0 / sum(temp_motif.values())
+    for k in temp_motif:
+        temp_motif[k] = temp_motif[k] * factor
+    print(temp_motif)
+
+    for trip in u_triplets:
+        sub_gr = gr.subgraph(trip)
+        mot_match = list(map(lambda mot_id: nx.is_isomorphic(sub_gr, mo[mot_id]), motifs.keys()))
+        match_keys = [list(mo.keys())[i] for i in range(len(mo)) if mot_match[i]]
+        if len(match_keys) == 1:
+            mcount[match_keys[0]] += 1
+    print(mcount)
+    return mcount
 
 
 def louvain(df):
     print("Transforming labels...")
-    g = nx.from_pandas_edgelist(df, 'SOURCE_SUBREDDIT', 'TARGET_SUBREDDIT')
+    g = nx.from_pandas_edgelist(df, 'source', 'target')
     G = nx.convert_node_labels_to_integers(g)
     # compute the best partition
     print("Finding best partitions...")
@@ -98,16 +183,18 @@ if __name__ == '__main__':
     #print(degree_sort[:20])
     #print("ranking_outdegree: ", ranking_outdegree[:20])
     #G_out_degree = G.subgraph(list(list(G.adjacency())[mapping.get(ranking_outdegree[0])][1].keys()))
-    G = G.subgraph(ranking_outdegree[:708])
+    #G = G.subgraph(ranking_outdegree[:708])
+    G = G.subgraph(ranking_outdegree[:100])
     #print(nx.info(G_out_degree))
     G.name = "G_out_degree"
 
     Gdf = df.rename(columns={'SOURCE_SUBREDDIT': 'source', 'TARGET_SUBREDDIT': 'target'})
-    print(Gdf.shape)
-    Gdf = Gdf[Gdf.source.isin(ranking_indegree[:820])]
-    Gdf = Gdf[Gdf.target.isin(ranking_indegree[:820])]
-    print(Gdf.shape)
-    temp_motifs(Gdf)
+   # print(Gdf.shape)
+    Gdf = Gdf[Gdf.source.isin(ranking_outdegree[:100])]
+    Gdf = Gdf[Gdf.target.isin(ranking_outdegree[:100])]
+    #print(Gdf.shape)
+    print(G)
+    motifNode(G, Gdf, ranking_outdegree[0])
 
     # Graph_n = nx.convert_node_labels_to_integers(G)
     #
